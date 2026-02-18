@@ -2,6 +2,7 @@ package org.example
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.circe.Decoder
+import org.apache.flink.api.common.eventtime.WatermarkStrategy
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows
@@ -45,6 +46,12 @@ object App {
 
     env.fromElements(gen(), gen(), gen(), gen())
       .uid("source")
+      .assignTimestampsAndWatermarks(
+        WatermarkStrategy
+          .forBoundedOutOfOrderness[Item](Duration.ofSeconds(10))
+          .withTimestampAssigner((element, _) => element.timestamp)
+      )
+      .uid("watermarks")
       .keyBy(_.key)
       .window(SlidingEventTimeWindows.of(
         Duration.ofMinutes(1),
@@ -62,13 +69,14 @@ object App {
     Item(
       key = Random.alphanumeric.take(12).mkString,
       value = Random.alphanumeric.take(12).mkString,
+      timestamp = System.currentTimeMillis()
     )
 }
 
 
 final case class FlinkConf(localConfiguration: Configuration)
 
-final case class Item(key: String, value: String)
+final case class Item(key: String, value: String, timestamp: Long)
 
 final class Aggregator extends ProcessWindowFunction[Item, Seq[Item], String, TimeWindow]  {
   override def process(key: String, context: Context, elements: Iterable[Item], out: Collector[Seq[Item]]): Unit = {
